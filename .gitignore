@@ -1,3 +1,4 @@
 *.exe
 bin/*
-
+example/example
+*.txt

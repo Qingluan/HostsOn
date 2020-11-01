@@ -181,10 +181,10 @@ func (sshstr Ssh) SshShell(cmd string, connectedDo ...func(cli *ssh.Client)) str
 	return b.String()
 }
 
-func RunByClient(cli *ssh.Client, cmd string) {
+func RunByClient(cli *ssh.Client, cmd string) string {
 	sess, err := cli.NewSession()
 	if err != nil {
-		return
+		return ""
 	}
 	defer sess.Close()
 
@@ -195,7 +195,7 @@ func RunByClient(cli *ssh.Client, cmd string) {
 	if err := sess.Run(cmd); err != nil {
 		log.Println(err)
 	}
-	fmt.Println(datas.Green(b.String()))
+	return b.String()
 }
 
 func (sshstr Ssh) SshSync(file string, ifremove bool, connectedDo ...func(name string, cli *ssh.Client)) (string, string) {
