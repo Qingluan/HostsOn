@@ -9,7 +9,6 @@ import (
 	"log"
 	"net"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -41,6 +40,9 @@ type Auth struct {
 // protcol://ip:port:user:pwd
 // pro://ip:port@user:pwd
 func ParseStringToBrute(s string) (a *Auth, err error) {
+	if strings.Contains(s, "##") {
+		s = strings.TrimSpace(strings.SplitN(s, "##", 2)[0])
+	}
 	fs := strings.SplitN(s, "@", 2)
 	if len(fs) != 2 {
 		var name, pwd string
@@ -174,7 +176,7 @@ func (sshstr Ssh) SshShell(cmd string, connectedDo ...func(cli *ssh.Client)) str
 	var b bytes.Buffer
 	sess.Stdout = &b
 	sess.Stderr = &b
-	fmt.Println(datas.Blue("---> running ", cmd))
+	// fmt.Println(datas.Blue("---> running ", cmd))
 	if err := sess.Run(cmd); err != nil {
 		return err.Error()
 	}
@@ -191,7 +193,7 @@ func RunByClient(cli *ssh.Client, cmd string) string {
 	var b bytes.Buffer
 	sess.Stdout = &b
 	sess.Stderr = &b
-	fmt.Println(datas.Blue("---> running "))
+	// fmt.Println(datas.Blue("---> running "))
 	if err := sess.Run(cmd); err != nil {
 		log.Println(err)
 	}
@@ -289,60 +291,6 @@ func (sshstr Ssh) SshSync(file string, ifremove bool, connectedDo ...func(name s
 	return name, auth.User + ":" + auth.Pwd
 }
 
-func Daemon(args []string, LOG_FILE string) {
-	// defer os.Remove(LOG_FILE)
-	if os.Getppid() != 1 {
-		createLogFile := func(fileName string) (fd *os.File, err error) {
-			dir := path.Dir(fileName)
-			if _, err = os.Stat(dir); err != nil && os.IsNotExist(err) {
-				if err = os.MkdirAll(dir, 0755); err != nil {
-					log.Println(err)
-					return
-				}
-			}
-
-			if fd, err = os.Create(fileName); err != nil {
-				log.Println(err)
-				return
-			}
-			return
-		}
-		if LOG_FILE != "" {
-			logFd, err := createLogFile(LOG_FILE)
-			if err != nil {
-				log.Println(err)
-				return
-			}
-			defer logFd.Close()
-
-			cmdName := args[0]
-			newProc, err := os.StartProcess(cmdName, args, &os.ProcAttr{
-				Files: []*os.File{logFd, logFd, logFd},
-			})
-			if err != nil {
-				log.Fatal("daemon error:", err)
-				return
-			}
-			log.Printf("Start-Deamon: run in daemon success, pid: %v\nlog : %s", newProc.Pid, LOG_FILE)
-
-		} else {
-			cmdName := args[0]
-			newProc, err := os.StartProcess(cmdName, args, &os.ProcAttr{
-				Files: []*os.File{nil, nil, nil},
-			})
-
-			if err != nil {
-				log.Fatal("daemon error:", err)
-				return
-			}
-			log.Printf("Start-Deamon: run in daemon success, pid: %v\n", newProc.Pid)
-
-		}
-
-		return
-	}
-}
-
 // func DepAll(targets string, hosts ...string) {
 // 	num := len(hosts)
 // 	buf, err := ioutil.ReadFile(targets)
@@ -398,11 +346,39 @@ func (bar *Controller) Copy(size int64, outer io.WriteCloser, reader io.ReadClos
 	io.Copy(outer, proxyReader)
 	return tmpBar
 }
+func (bar *Controller) OnlyRun(hosts []string, after ...func(cli *ssh.Client) string) (err error) {
+	for _, l := range hosts {
+		if strings.TrimSpace(l) != "" {
+			bar.wait.Add(1)
+			go bar.RunShell(strings.TrimSpace(l), after...)
+		}
+	}
+	bar.wait.Wait()
+	return
+}
+
+func (bar *Controller) RunShell(connect string, after ...func(cli *ssh.Client) string) (err error) {
+	defer bar.wait.Done()
+	_, client, err := Ssh(connect).Connected()
+	if err != nil {
+		fmt.Println(datas.Red("Connected Failed ", connect))
+		return err
+	}
+	defer func() {
+		client.Close()
+	}()
+	if after != nil {
+		after[0](client)
+	}
+	return
+}
 
 func (bar *Controller) Upload(connect string, file string, ifremove bool, after ...func(newName string, cli *ssh.Client) string) (err error) {
 	defer bar.wait.Done()
 	auth, client, err := Ssh(connect).Connected()
 	if err != nil {
+		ss, _ := ParseStringToBrute(connect)
+		fmt.Println(datas.Red("Connected Failed ", ss))
 		return err
 	}
 
@@ -524,4 +500,40 @@ func (bar *Controller) Uploads(file string, hostsFile string, ifremove bool, aft
 	// bar.BarAll.Wait()
 
 	return
+}
+
+func (bar *Controller) UploadsByHosts(hosts []string, file string, ifremove bool, after ...func(newName string, cli *ssh.Client) string) (err error) {
+
+	for _, l := range hosts {
+		if strings.TrimSpace(l) != "" {
+			bar.wait.Add(1)
+			go bar.Upload(strings.TrimSpace(l), file, ifremove, after...)
+		}
+	}
+	bar.wait.Wait()
+
+	// bar.BarAll.Wait()
+
+	return
+}
+
+func ReadHostsFile(f string) (hs []string) {
+	buf, err := ioutil.ReadFile(f)
+	if err != nil {
+		return
+	}
+	// go func() {
+	// 	for {
+	// b := <-bar.bars
+	// if b != nil{
+	// b.
+	// }
+	// 	}
+	// }()
+	for _, l := range strings.Split(string(buf), "\n") {
+		if strings.TrimSpace(l) != "" {
+			hs = append(hs, l)
+		}
+	}
+	return hs
 }
