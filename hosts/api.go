@@ -277,7 +277,7 @@ func addDeployOp() (action int, prefix string, hs []string, up map[string]int) {
 			collectionone = true
 			continue
 		} else if a == "--ups" {
-			action = 2
+			action = 5
 			collectionsplit = true
 			continue
 		} else if a == "--ps" {
