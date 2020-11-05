@@ -54,7 +54,7 @@ func GetID(f string) string {
 	// return U.String()
 
 	U := uuid.NewMD5(uuid.UUID{}, []byte(f))
-	name := filepath.Join("/tmp", U.String())
+	name := filepath.Join(REMOTE_TMP, U.String())
 	return name
 }
 
@@ -148,11 +148,11 @@ func (api *Hosts) RunShell(f string) {
 		res := RunByClient(cli, f)
 		for k, v := range api.remoteFile {
 			if strings.Contains(f, k) {
-				f = strings.ReplaceAll(f, k, "/tmp/"+v)
+				f = strings.ReplaceAll(f, k, filepath.Join(REMOTE_TMP, v))
 			}
 		}
-		fmt.Println(cli.RemoteAddr(), res)
-		return res
+		return cli.RemoteAddr().String() + "\n" + res
+		// return res
 	})
 }
 
@@ -240,7 +240,7 @@ func AddDaemonOption() {
 	}
 }
 
-func addDeployOp() (action int, hs []string) {
+func addDeployOp() (action int, prefix string, hs []string, up map[string]int) {
 	var hostsFile string
 	// flag.StringVar(&hostsFile, "dephosts", "", "set hosts file to deploy")
 	// flag.Parse()
@@ -248,12 +248,13 @@ func addDeployOp() (action int, hs []string) {
 	start := false
 	newargs := []string{}
 	ifhelp := false
+	collectionone := false
+	collectionsplit := false
+	readPrefix := false
+	showProgress := false
+	uploads := make(map[string]int)
 	for _, a := range os.Args {
-		if start {
-			hostsFile = a
-			start = false
-			continue
-		}
+
 		if a == "--By" {
 			start = true
 			continue
@@ -271,17 +272,60 @@ func addDeployOp() (action int, hs []string) {
 		} else if a == "--shell" {
 			action = 4
 			continue
+		} else if a == "--up" {
+			action = 5
+			collectionone = true
+			continue
+		} else if a == "--ups" {
+			action = 2
+			collectionsplit = true
+			continue
+		} else if a == "--ps" {
+			showProgress = true
+			continue
+		} else if a == "--prefix" {
+			readPrefix = true
+			continue
+		} else {
+			if start {
+				hostsFile = a
+				start = false
+				continue
+			} else if collectionone && action == 5 {
+				uploads[a] = 0
+				continue
+			} else if collectionsplit && action == 5 {
+				uploads[a] = 1
+				continue
+			} else if readPrefix {
+				prefixBuf, err := ioutil.ReadFile(a)
+				if err != nil {
+					log.Fatal("--prefix read file error:", err)
+				}
+				prefix = string(prefixBuf)
+				readPrefix = false
+				continue
+			} else if showProgress {
+				up[a] = 3
+				continue
+			}
 		}
 
 		newargs = append(newargs, a)
 	}
 	if ifhelp {
 		log.Println(`
-	Add deploy options:
+Add deploy options:
+	"--dep" # will -dep this file like: "` + strings.Join(os.Args, " ") + "-D" + `" in remote` + `
+	"--status" # will show ` + os.Args[0] + ` in remote's status
+	"--ps" [name] # will show  in remote's status
 	"--By" # set hosts file , if --By v # will type vultr key to generate hosts file content 
-	 "--dep" # will -dep this file like: "` + strings.Join(os.Args, " ") + "-D" + `" in remote` + `
-	 "--status" # will show ` + os.Args[0] + ` in remote's status
-	 "--kill" # will kill in remote`)
+	"--prefix" # will read a file as prefix , for --upload file !!! --upload must in last args
+	"--up" #  uplaod file follow this options, then upload to remotes' ` + REMOTE_TMP + `/$base_name(file) , 
+	"--ups" # can mark witch file to uplaod before , if set --prefix , will split file by lines  ${each_lines} + ${prefix} --> a tmp file , then uplaod this tmp file , 
+	"--kill" # will kill in remote`)
+		flag.Parse()
+		os.Exit(0)
 	}
 	if hostsFile == "v" {
 		sess := http.NewSession()
@@ -305,12 +349,13 @@ func addDeployOp() (action int, hs []string) {
 	}
 	os.Args = newargs
 	// hs = hosts
+	up = uploads
 	return
 }
 
 func DeployOption() {
 
-	action, hosts := addDeployOp()
+	action, prefix, hosts, uploads := addDeployOp()
 	if action == 4 && len(hosts) > 0 {
 		con := NewHosts()
 		con.hosts = hosts
@@ -320,35 +365,67 @@ func DeployOption() {
 	AddDaemonOption()
 	if action == 1 {
 		conn := NewController()
+		// for _, f := range uploads {
+		// 	conn.SetSplitUpload(f, prefix)
+		// 	conn.UploadsByHosts(hosts, f, true, nil)
+		// }
+		// conn.UploadMode = 0
+		// conn.UploadFileName = ""
 		log.Println("chmod +x " + GetID(os.Args[0]) + ";" + strings.Join(os.Args, " "))
 		conn.UploadsByHosts(hosts, os.Args[0], true, func(newname string, cli *ssh.Client) string {
 			os.Args[0] = newname
 			os.Args = append(os.Args, "-D")
-			log.Println("Run:", "chmod +x "+newname+";"+strings.Join(os.Args, " "))
+			// log.Println("Run:", "chmod +x "+newname+";"+strings.Join(os.Args, " "))
 			res := RunByClient(cli, "chmod +x "+newname+";"+strings.Join(os.Args, " "))
 			return res
 		})
 		os.Exit(0)
 	} else if action == 2 {
 
-		conn := NewController()
-		newname := GetID(os.Args[0])
-		log.Println("status with:", fmt.Sprintf("ps aux | grep \"%s\" | egrep -v \"(grep|egrep)\" | awk '{print $2}' |xargs ", newname))
-		conn.OnlyRun(hosts, func(cli *ssh.Client) string {
-			newname := GetID(os.Args[0])
-			res := RunByClient(cli, fmt.Sprintf("ps aux | grep \"%s\" | egrep -v \"(grep|egrep)\" | awk '{print $2}' |xargs ", newname))
-			if strings.TrimSpace(res) == "" {
-				fmt.Println(cli.RemoteAddr(), " not Running")
-				return res
+		if len(uploads) > 0 {
+			conn := NewController()
+			newname := ""
+			for n := range uploads {
+				newname = n
+				break
 			}
-			// e, err := strconv.Atoi(strings.TrimSpace(res))
-			// if err != nil {
-			// 	fmt.Println("\n", cli.RemoteAddr(), " not Running", res)
-			// 	return res
-			// }
-			fmt.Println(cli.RemoteAddr(), "Running in :", strings.TrimSpace(res))
-			return res
-		})
+			log.Println("status with:", fmt.Sprintf("ps aux | grep \"%s\" | egrep -v \"(grep|egrep)\" | awk '{print $2}' |xargs ", newname))
+			conn.OnlyRun(hosts, func(cli *ssh.Client) string {
+				newname := GetID(os.Args[0])
+				res := RunByClient(cli, fmt.Sprintf("ps aux | grep \"%s\" | egrep -v \"(grep|egrep)\" | awk '{print $2}' |xargs ", newname))
+				if strings.TrimSpace(res) == "" {
+					// fmt.Println(cli.RemoteAddr(), " not Running")
+					return res
+				}
+				// e, err := strconv.Atoi(strings.TrimSpace(res))
+				// if err != nil {
+				// 	fmt.Println("\n", cli.RemoteAddr(), " not Running", res)
+				// 	return res
+				// }
+				fmt.Println(cli.RemoteAddr(), "Running in :", strings.TrimSpace(res))
+				return res
+			})
+		} else {
+			conn := NewController()
+			newname := GetID(os.Args[0])
+			log.Println("status with:", fmt.Sprintf("ps aux | grep \"%s\" | egrep -v \"(grep|egrep)\" | awk '{print $2}' |xargs ", newname))
+			conn.OnlyRun(hosts, func(cli *ssh.Client) string {
+				newname := GetID(os.Args[0])
+				res := RunByClient(cli, fmt.Sprintf("ps aux | grep \"%s\" | egrep -v \"(grep|egrep)\" | awk '{print $2}' |xargs ", newname))
+				if strings.TrimSpace(res) == "" {
+					// fmt.Println(cli.RemoteAddr(), " not Running")
+					return res
+				}
+				// e, err := strconv.Atoi(strings.TrimSpace(res))
+				// if err != nil {
+				// 	fmt.Println("\n", cli.RemoteAddr(), " not Running", res)
+				// 	return res
+				// }
+				fmt.Println(cli.RemoteAddr(), "Running in :", strings.TrimSpace(res))
+				return res
+			})
+		}
+
 		os.Exit(0)
 	} else if action == 3 {
 		// AddDaemonOption()
@@ -359,6 +436,20 @@ func DeployOption() {
 			res := RunByClient(cli, fmt.Sprintf("ps aux | grep %s | egrep -v \"(grep|egrep)\" | awk '{print $2}' |xargs kill -9", newname))
 			return res
 		})
+		os.Exit(0)
+	} else if action == 5 {
+		conn := NewController()
+		for n, mode := range uploads {
+			if mode == 1 {
+				conn.SetSplitUpload(n, prefix)
+				conn.UploadsByHosts(hosts, n, true, nil)
+
+			} else {
+				conn.SetSingleUpload(n)
+				conn.UploadsByHosts(hosts, n, true, nil)
+			}
+			// conn.UploadsByHosts(hosts, f, t, func(newname string))
+		}
 		os.Exit(0)
 	}
 
