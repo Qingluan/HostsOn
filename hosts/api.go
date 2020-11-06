@@ -281,6 +281,7 @@ func addDeployOp() (action int, prefix string, hs []string, up map[string]int) {
 			collectionsplit = true
 			continue
 		} else if a == "--ps" {
+			action = 2
 			showProgress = true
 			continue
 		} else if a == "--prefix" {
@@ -405,6 +406,7 @@ func DeployOption() {
 				fmt.Println(cli.RemoteAddr(), "Running in :", strings.TrimSpace(res))
 				return res
 			})
+			// os.Exit(0)
 		} else {
 			conn := NewController()
 			newname := GetID(os.Args[0])
@@ -424,6 +426,7 @@ func DeployOption() {
 				fmt.Println(cli.RemoteAddr(), "Running in :", strings.TrimSpace(res))
 				return res
 			})
+			os.Exit(0)
 		}
 
 		os.Exit(0)
