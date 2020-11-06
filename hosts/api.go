@@ -306,7 +306,7 @@ func addDeployOp() (action int, prefix string, hs []string, up map[string]int) {
 				readPrefix = false
 				continue
 			} else if showProgress {
-				up[a] = 3
+				uploads[a] = 3
 				continue
 			}
 		}
