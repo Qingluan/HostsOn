@@ -151,7 +151,7 @@ func (api *Hosts) RunShell(f string) {
 				f = strings.ReplaceAll(f, k, filepath.Join(REMOTE_TMP, v))
 			}
 		}
-		return cli.RemoteAddr().String() + "\n" + res
+		return cli.RemoteAddr().String() + "[SEP]" + res
 		// return res
 	})
 }

@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fatih/color"
 	"github.com/google/uuid"
 
 	"gitee.com/dark.H/go-remote-repl/datas"
@@ -30,6 +31,7 @@ var (
 	UploadModeSplit  = 1
 	UploadModeSingle = 0
 	REMOTE_TMP       = "/tmp/_deploys_files"
+	Green            = color.New(color.FgGreen).SprintFunc()
 )
 
 type Ssh string
@@ -357,15 +359,28 @@ func (bar *Controller) Copy(size int64, outer io.WriteCloser, reader io.ReadClos
 	io.Copy(outer, proxyReader)
 	return tmpBar
 }
-func (bar *Controller) OnlyRun(hosts []string, after ...func(cli *ssh.Client) string) (err error) {
-	go func() {
-		for {
-			b := <-bar.outputs
-			if b != "" {
-				fmt.Println(b)
+
+func (bar *Controller) ListenAndPrint() {
+	for {
+		b := <-bar.outputs
+		if strings.Contains(b, "[SEP]") {
+			fs := strings.SplitN(b, "[SEP]", 2)
+			fmt.Fprintf(os.Stderr, "[Fin] %s\n", Green(fs[0]))
+			o := strings.TrimSpace(fs[1])
+			if o != "" {
+				fmt.Println(o)
+			}
+		} else {
+			o := strings.TrimSpace(b)
+			if o != "" {
+				fmt.Println(o)
 			}
 		}
-	}()
+	}
+}
+
+func (bar *Controller) OnlyRun(hosts []string, after ...func(cli *ssh.Client) string) (err error) {
+	go bar.ListenAndPrint()
 	for _, l := range hosts {
 		if strings.TrimSpace(l) != "" {
 			bar.wait.Add(1)
@@ -506,14 +521,7 @@ func (bar *Controller) Uploads(file string, hostsFile string, ifremove bool, aft
 	if err != nil {
 		return
 	}
-	go func() {
-		for {
-			b := <-bar.outputs
-			if b != "" {
-				fmt.Println(b)
-			}
-		}
-	}()
+	go bar.ListenAndPrint()
 	for _, l := range strings.Split(string(buf), "\n") {
 		if strings.TrimSpace(l) != "" {
 			bar.wait.Add(1)

@@ -5,6 +5,7 @@ go 1.14
 require (
 	gitee.com/dark.H/Jupyter v0.0.0-20200928043516-73acadd15bd0
 	gitee.com/dark.H/go-remote-repl v1.1.6
+	github.com/fatih/color v1.9.0
 	github.com/google/uuid v1.1.2
 	github.com/kless/term v0.0.0-20161130133337-e551c64f56c0 // indirect
 	github.com/pkg/sftp v1.12.0
